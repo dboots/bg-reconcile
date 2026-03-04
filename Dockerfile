@@ -2,7 +2,7 @@
 
 # Adjust NODE_VERSION as desired
 ARG NODE_VERSION=22.21.1
-FROM node:${NODE_VERSION}-slim AS base
+FROM node:${NODE_VERSION}-slim as base
 
 LABEL fly_launch_runtime="Next.js"
 
@@ -16,7 +16,7 @@ RUN npm install -g yarn@$YARN_VERSION --force
 
 
 # Throw-away build stage to reduce size of final image
-FROM base AS build
+FROM base as build
 
 # Install packages needed to build node modules
 RUN apt-get update -qq && \
@@ -30,7 +30,7 @@ RUN yarn install --frozen-lockfile --production=false
 COPY . .
 
 # Build application
-RUN npx next build --experimental-build-mode compile
+RUN yarn run build
 
 # Remove development dependencies
 RUN yarn install --production=true
@@ -42,12 +42,6 @@ FROM base
 # Copy built application
 COPY --from=build /app /app
 
-# Entrypoint sets up the container.
-ENTRYPOINT [ "/app/docker-entrypoint.js" ]
-
 # Start the server by default, this can be overwritten at runtime
 EXPOSE 3000
-COPY --from=build /app/.next/standalone /app
-COPY --from=build /app/.next/static /app/.next/static
-COPY --from=build /app/public /app/public
-CMD [ "node", "server.js" ]
+CMD [ "yarn", "run", "start" ]
