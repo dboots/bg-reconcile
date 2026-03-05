@@ -1,5 +1,5 @@
 'use client';
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const INITIAL_TRANSACTIONS = [
@@ -88,6 +88,11 @@ const BggDeviation = () => {
   const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
   const [form, setForm] = useState({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
   const [nextId, setNextId] = useState(9);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string }>>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [selectedGame, setSelectedGame] = useState<{ id: string; name: string } | null>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   const chartData = useMemo(() => {
     const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -103,10 +108,52 @@ const BggDeviation = () => {
   const totalBought = transactions.filter((t) => t.type === "buy").reduce((s, t) => s + t.amount, 0);
   const totalSold = transactions.filter((t) => t.type === "sell").reduce((s, t) => s + t.amount, 0);
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    setForm({ ...form, bggId: query });
+    setShowResults(true);
+
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`https://boardgamegeek.com/xmlapi2/search?query=${encodeURIComponent(query)}&type=boardgame`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_BGG_AUTH_TOKEN}`
+          }
+        });
+        if (!response.ok) throw new Error('Failed to search games');
+        const text = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, 'text/xml');
+        const items = xmlDoc.querySelectorAll('item');
+        const results = Array.from(items).slice(0, 5).map((item) => ({
+          id: item.getAttribute('id') || '',
+          name: item.querySelector('name')?.getAttribute('value') || '',
+        }));
+        setSearchResults(results);
+      } catch (error) {
+        console.error('Search error:', error);
+      }
+    }, 300);
+  };
+
+  const handleSelectGame = (game: { id: string; name: string }) => {
+    setSelectedGame(game);
+    setSearchQuery(game.name);
+    setForm({ ...form, bggId: game.id });
+    setShowResults(false);
+    setSearchResults([]);
+  };
+
   const handleAdd = async () => {
-    if (!form.bggId.trim() || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
+    if (!selectedGame || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
     try {
-      const response = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${form.bggId}`, { headers: {
+      const response = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${selectedGame.id}`, { headers: {
         'Authorization': `Bearer ${process.env.NEXT_PUBLIC_BGG_AUTH_TOKEN}`
       }});
       if (!response.ok) throw new Error('Failed to fetch game data');
@@ -124,6 +171,8 @@ const BggDeviation = () => {
       ]);
       setNextId(nextId + 1);
       setForm({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
+      setSearchQuery("");
+      setSelectedGame(null);
     } catch (error) {
       alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
@@ -348,24 +397,65 @@ const BggDeviation = () => {
         >
           Add Transaction
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <input
-            value={form.bggId}
-            onChange={(e) => setForm({ ...form, bggId: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="BGG Game ID"
-            style={{
-              flex: "2 1 160px",
-              background: "#1a1208",
-              border: "1px solid #4a3820",
-              borderRadius: 6,
-              padding: "9px 12px",
-              color: "#f0e6d0",
-              fontFamily: "Crimson Text, Georgia, serif",
-              fontSize: 14,
-              outline: "none",
-            }}
-          />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", position: "relative" }}>
+          <div style={{ flex: "2 1 160px", position: "relative" }}>
+            <input
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              onFocus={() => searchResults.length > 0 && setShowResults(true)}
+              onBlur={() => setTimeout(() => setShowResults(false), 200)}
+              placeholder="Search games..."
+              style={{
+                width: "100%",
+                background: "#1a1208",
+                border: "1px solid #4a3820",
+                borderRadius: 6,
+                padding: "9px 12px",
+                color: "#f0e6d0",
+                fontFamily: "Crimson Text, Georgia, serif",
+                fontSize: 14,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {showResults && searchResults.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  background: "#1a1208",
+                  border: "1px solid #4a3820",
+                  borderTop: "none",
+                  borderRadius: "0 0 6 6",
+                  zIndex: 10,
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                }}
+              >
+                {searchResults.map((game) => (
+                  <div
+                    key={game.id}
+                    onClick={() => handleSelectGame(game)}
+                    style={{
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      borderBottom: "1px solid #2a2010",
+                      color: "#f0e6d0",
+                      fontSize: 13,
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#2a2010")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    {game.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <select
             value={form.type}
             onChange={(e) => setForm({ ...form, type: e.target.value })}
