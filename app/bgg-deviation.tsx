@@ -107,7 +107,7 @@ const BggDeviation = () => {
     if (!form.bggId.trim() || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
     try {
       const response = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${form.bggId}`, { headers: {
-        'Authorization': 'Bearer 89af3cd0-9c39-4846-82a9-edcc5a9d9544'
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_BGG_AUTH_TOKEN}`
       }});
       if (!response.ok) throw new Error('Failed to fetch game data');
       const text = await response.text();
