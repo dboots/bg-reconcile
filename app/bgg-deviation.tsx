@@ -3,14 +3,14 @@ import React, { useMemo, useState } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const INITIAL_TRANSACTIONS = [
-  { id: 1, game: "Wingspan", type: "sell", amount: 65, image: "/images/wingspan.jpg" },
-  { id: 2, game: "Pandemic Legacy S1", type: "sell", amount: 40, image: "/images/pandemic.jpg" },
-  { id: 3, game: "Gloomhaven", type: "buy", amount: 120, image: "/images/gloomhaven.jpg" },
-  { id: 4, game: "Ticket to Ride", type: "sell", amount: 30, image: "/images/ttr.jpg" },
-  { id: 5, game: "Arkham Horror 3e", type: "buy", amount: 55, image: "/images/arkham.jpg" },
-  { id: 6, game: "Catan", type: "sell", amount: 25, image: "/images/catan.jpg" },
-  { id: 7, game: "Spirit Island", type: "sell", amount: 80, image: "https://cf.geekdo-images.com/gn1YR96qXoUhVSbo4SKwvQ__itemrep@2x/img/IkEKg0ZMZ7akkTbjNn6_-JD4rDU=/fit-in/492x600/filters:strip_icc()/pic2003559.jpg" },
-  { id: 8, game: "Puerto Rico", type: "buy", amount: 80, image: "/images/fpo.webp" },
+  { id: 1, game: "Wingspan", type: "sell", amount: 65, image: "/images/wingspan.jpg", date: "2023-01-15" },
+  { id: 2, game: "Pandemic Legacy S1", type: "sell", amount: 40, image: "/images/pandemic.jpg", date: "2023-02-10" },
+  { id: 3, game: "Gloomhaven", type: "buy", amount: 120, image: "/images/gloomhaven.jpg", date: "2023-03-05" },
+  { id: 4, game: "Ticket to Ride", type: "sell", amount: 30, image: "/images/ttr.jpg", date: "2023-04-20" },
+  { id: 5, game: "Arkham Horror 3e", type: "buy", amount: 55, image: "/images/arkham.jpg", date: "2023-05-12" },
+  { id: 6, game: "Catan", type: "sell", amount: 25, image: "/images/catan.jpg", date: "2023-06-08" },
+  { id: 7, game: "Spirit Island", type: "sell", amount: 80, image: "https://cf.geekdo-images.com/gn1YR96qXoUhVSbo4SKwvQ__itemrep@2x/img/IkEKg0ZMZ7akkTbjNn6_-JD4rDU=/fit-in/492x600/filters:strip_icc()/pic2003559.jpg", date: "2023-07-14" },
+  { id: 8, game: "Puerto Rico", type: "buy", amount: 80, image: "/images/fpo.webp", date: "2023-08-22" },
 ];
 
 const BUY_COLOR = "#c0392b";
@@ -23,6 +23,7 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }: any) => {
   const bar = (payload as any[]).find((p: any) => p.dataKey === "value");
   const line = (payload as any[]).find((p: any) => p.dataKey === "running");
   const img = payload[0]?.payload?.image;
+  const game = payload[0]?.payload?.game;
   return (
     <div
       style={{
@@ -38,9 +39,12 @@ const CustomTooltip: React.FC<any> = ({ active, payload, label }: any) => {
       <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6, color: "#d4a843" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {img && (
-            <img src={img} alt={label} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />
+            <img src={img} alt={game} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />
           )}
-          <div>{label}</div>
+          <div>{game}</div>
+        </div>
+        <div style={{ fontSize: 12, color: "#8b6b3a", marginTop: 4 }}>
+          {new Date(label).toLocaleDateString()}
         </div>
       </div>
       {bar && (
@@ -82,15 +86,16 @@ const ImageDot: React.FC<any> = (props: any) => {
 
 const BggDeviation = () => {
   const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
-  const [form, setForm] = useState({ game: "", type: "buy", amount: "", image: "" });
+  const [form, setForm] = useState({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
   const [nextId, setNextId] = useState(9);
 
   const chartData = useMemo(() => {
+    const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     let running = 0;
-    return transactions.map((t) => {
+    return sortedTransactions.map((t) => {
       const value = t.type === "sell" ? t.amount : -t.amount;
       running += value;
-      return { name: t.game, value, running, type: t.type, image: t.image };
+      return { date: t.date, game: t.game, value, running, type: t.type, image: t.image };
     });
   }, [transactions]);
 
@@ -98,14 +103,30 @@ const BggDeviation = () => {
   const totalBought = transactions.filter((t) => t.type === "buy").reduce((s, t) => s + t.amount, 0);
   const totalSold = transactions.filter((t) => t.type === "sell").reduce((s, t) => s + t.amount, 0);
 
-  const handleAdd = () => {
-    if (!form.game.trim() || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
-    setTransactions([
-      ...transactions,
-      { id: nextId, game: form.game.trim(), type: form.type, amount: Number(form.amount), image: form.image?.trim() || "/images/placeholder.jpg" },
-    ]);
-    setNextId(nextId + 1);
-    setForm({ game: "", type: "buy", amount: "", image: "" });
+  const handleAdd = async () => {
+    if (!form.bggId.trim() || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
+    try {
+      const response = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${form.bggId}`, { headers: {
+        'Authorization': 'Bearer 89af3cd0-9c39-4846-82a9-edcc5a9d9544'
+      }});
+      if (!response.ok) throw new Error('Failed to fetch game data');
+      const text = await response.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+      const item = xmlDoc.querySelector('item');
+      if (!item) throw new Error('Game not found');
+      const name = item.querySelector('name')?.getAttribute('value');
+      const image = item.querySelector('image')?.textContent || "/images/placeholder.jpg";
+      if (!name) throw new Error('Game name not found');
+      setTransactions([
+        ...transactions,
+        { id: nextId, game: name, type: form.type, amount: Number(form.amount), image, date: form.date },
+      ]);
+      setNextId(nextId + 1);
+      setForm({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
+    } catch (error) {
+      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   };
 
   const handleRemove = (id: number) => {
@@ -274,12 +295,13 @@ const BggDeviation = () => {
           <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a2010" />
             <XAxis
-              dataKey="name"
+              dataKey="date"
               tick={{ fill: "#8b6b3a", fontSize: 11, fontFamily: "Crimson Text, Georgia, serif" }}
               angle={-35}
               textAnchor="end"
               interval={0}
               height={70}
+              tickFormatter={(value) => new Date(value).toLocaleDateString()}
             />
             <YAxis
               tick={{ fill: "#8b6b3a", fontSize: 11 }}
@@ -328,10 +350,10 @@ const BggDeviation = () => {
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <input
-            value={form.game}
-            onChange={(e) => setForm({ ...form, game: e.target.value })}
+            value={form.bggId}
+            onChange={(e) => setForm({ ...form, bggId: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="Game name"
+            placeholder="BGG Game ID"
             style={{
               flex: "2 1 160px",
               background: "#1a1208",
@@ -382,11 +404,11 @@ const BggDeviation = () => {
             }}
           />
           <input
-            value={form.image}
-            onChange={(e) => setForm({ ...form, image: e.target.value })}
-            placeholder="Image URL (optional)"
+            value={form.date}
+            onChange={(e) => setForm({ ...form, date: e.target.value })}
+            type="date"
             style={{
-              flex: "1 1 160px",
+              flex: "1 1 120px",
               background: "#1a1208",
               border: "1px solid #4a3820",
               borderRadius: 6,
@@ -483,6 +505,9 @@ const BggDeviation = () => {
                     }}
                   />
                   <div style={{ flex: 1, fontSize: 14 }}>{t.game}</div>
+                  <div style={{ fontSize: 12, color: "#8b6b3a", width: 100 }}>
+                    {new Date(t.date).toLocaleDateString()}
+                  </div>
                   <div
                     style={{
                       fontSize: 12,
