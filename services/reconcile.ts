@@ -26,7 +26,7 @@ export async function insertTransaction(
   tx: Omit<ReconcileRow, 'created_at' | 'id'>
 ): Promise<ReconcileRow> {
   const { data, error } = await supabase
-    .from<ReconcileRow>('reconcile')
+    .from('reconcile')
     .insert(tx)
     .select()
     .single();
@@ -35,7 +35,7 @@ export async function insertTransaction(
     throw error;
   }
 
-  return data;
+  return data as ReconcileRow;
 }
 
 /**
@@ -43,7 +43,7 @@ export async function insertTransaction(
  */
 export async function fetchTransactions(userId?: string): Promise<ReconcileRow[]> {
   let query = supabase
-    .from<ReconcileRow>('reconcile')
+    .from('reconcile')
     .select('*')
     .order('created_at', { ascending: true });
 
@@ -65,7 +65,7 @@ export async function fetchTransactions(userId?: string): Promise<ReconcileRow[]
  */
 export async function deleteTransaction(id: number, userId?: string): Promise<void> {
   let query = supabase
-    .from<ReconcileRow>('reconcile')
+    .from('reconcile')
     .delete()
     .eq('id', id);
 
