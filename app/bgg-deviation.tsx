@@ -1,16 +1,19 @@
 'use client';
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import AuthForm from '../components/AuthForm';
+import { supabase } from '../utils/supabaseClient';
+import UserMenu from '@/components/UserMenu';
 
 const INITIAL_TRANSACTIONS = [
-  { id: 1, game: "Wingspan", type: "sell", amount: 65, image: "/images/wingspan.jpg", date: "2023-01-15" },
-  { id: 2, game: "Pandemic Legacy S1", type: "sell", amount: 40, image: "/images/pandemic.jpg", date: "2023-02-10" },
-  { id: 3, game: "Gloomhaven", type: "buy", amount: 120, image: "/images/gloomhaven.jpg", date: "2023-03-05" },
-  { id: 4, game: "Ticket to Ride", type: "sell", amount: 30, image: "/images/ttr.jpg", date: "2023-04-20" },
-  { id: 5, game: "Arkham Horror 3e", type: "buy", amount: 55, image: "/images/arkham.jpg", date: "2023-05-12" },
-  { id: 6, game: "Catan", type: "sell", amount: 25, image: "/images/catan.jpg", date: "2023-06-08" },
-  { id: 7, game: "Spirit Island", type: "sell", amount: 80, image: "https://cf.geekdo-images.com/gn1YR96qXoUhVSbo4SKwvQ__itemrep@2x/img/IkEKg0ZMZ7akkTbjNn6_-JD4rDU=/fit-in/492x600/filters:strip_icc()/pic2003559.jpg", date: "2023-07-14" },
-  { id: 8, game: "Puerto Rico", type: "buy", amount: 80, image: "/images/fpo.webp", date: "2023-08-22" },
+  { id: 1, game: "Wingspan", type: "SELL", amount: 65, image: "/images/wingspan.jpg", date: "2023-01-15" },
+  { id: 2, game: "Pandemic Legacy S1", type: "SELL", amount: 40, image: "/images/pandemic.jpg", date: "2023-02-10" },
+  { id: 3, game: "Gloomhaven", type: "BUY", amount: 120, image: "/images/gloomhaven.jpg", date: "2023-03-05" },
+  { id: 4, game: "Ticket to Ride", type: "SELL", amount: 30, image: "/images/ttr.jpg", date: "2023-04-20" },
+  { id: 5, game: "Arkham Horror 3e", type: "BUY", amount: 55, image: "/images/arkham.jpg", date: "2023-05-12" },
+  { id: 6, game: "Catan", type: "SELL", amount: 25, image: "/images/catan.jpg", date: "2023-06-08" },
+  { id: 7, game: "Spirit Island", type: "SELL", amount: 80, image: "https://cf.geekdo-images.com/gn1YR96qXoUhVSbo4SKwvQ__itemrep@2x/img/IkEKg0ZMZ7akkTbjNn6_-JD4rDU=/fit-in/492x600/filters:strip_icc()/pic2003559.jpg", date: "2023-07-14" },
+  { id: 8, game: "Puerto Rico", type: "BUY", amount: 80, image: "/images/fpo.webp", date: "2023-08-22" },
 ];
 
 const BUY_COLOR = "#c0392b";
@@ -85,28 +88,72 @@ const ImageDot: React.FC<any> = (props: any) => {
 };
 
 const BggDeviation = () => {
-  const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
-  const [form, setForm] = useState({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
+  const [transactions, setTransactions] = useState<any[]>(INITIAL_TRANSACTIONS);
+  const [form, setForm] = useState({ bggId: "", type: "BUY", amount: "", date: new Date().toISOString().split('T')[0] });
   const [nextId, setNextId] = useState(9);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string }>>([]);
   const [showResults, setShowResults] = useState(false);
   const [selectedGame, setSelectedGame] = useState<{ id: string; name: string } | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // auth state listener
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // load persisted transactions from backend when component mounts
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const session = await supabase.auth.getSession();
+        const token = session.data?.session?.access_token;
+        const headers: Record<string,string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const resp = await fetch('/api/reconcile', { headers });
+        if (resp.ok) {
+          const data = await resp.json();
+          setTransactions(
+            data.map((r: any, idx: number) => ({
+              id: r.id || idx,
+              game: r.game,
+              type: r.action,
+              amount: r.amount,
+              image: r.image,
+              date: r.date || r.created_at,
+            }))
+          );
+          setNextId(data.length + 1);
+        }
+      } catch (e) {
+        console.error('failed to load transactions', e);
+      }
+    })();
+  }, [user]); // reload when user changes
 
   const chartData = useMemo(() => {
     const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     let running = 0;
     return sortedTransactions.map((t) => {
-      const value = t.type === "sell" ? t.amount : -t.amount;
+      const value = t.type === "SELL" ? t.amount : -t.amount;
       running += value;
       return { date: t.date, game: t.game, value, running, type: t.type, image: t.image };
     });
   }, [transactions]);
 
   const deviation = chartData.length ? chartData[chartData.length - 1].running : 0;
-  const totalBought = transactions.filter((t) => t.type === "buy").reduce((s, t) => s + t.amount, 0);
-  const totalSold = transactions.filter((t) => t.type === "sell").reduce((s, t) => s + t.amount, 0);
+  const deviationColor = deviation === 0 ? ZERO_COLOR : deviation > 0 ? SELL_COLOR : BUY_COLOR;
+  const totalBought = transactions.filter((t) => t.type === "BUY").reduce((s, t) => s + t.amount, 0);
+  const totalSold = transactions.filter((t) => t.type === "SELL").reduce((s, t) => s + t.amount, 0);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -153,6 +200,7 @@ const BggDeviation = () => {
   const handleAdd = async () => {
     if (!selectedGame || !form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) return;
     try {
+      // fetch image/name from BGG api
       const response = await fetch(`https://boardgamegeek.com/xmlapi2/thing?id=${selectedGame.id}`, { headers: {
         'Authorization': `Bearer ${process.env.NEXT_PUBLIC_BGG_AUTH_TOKEN}`
       }});
@@ -165,12 +213,40 @@ const BggDeviation = () => {
       const name = item.querySelector('name')?.getAttribute('value');
       const image = item.querySelector('image')?.textContent || "/images/placeholder.jpg";
       if (!name) throw new Error('Game name not found');
-      setTransactions([
-        ...transactions,
-        { id: nextId, game: name, type: form.type, amount: Number(form.amount), image, date: form.date },
+
+      // insert into our backend (which in turn writes to Supabase)
+      const session = await supabase.auth.getSession();
+      const token = session.data?.session?.access_token;
+      const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const apiResp = await fetch('/api/reconcile', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          game: name,
+          action: form.type,
+          amount: Number(form.amount),
+          image,
+          date: form.date,
+        }),
+      });
+      if (!apiResp.ok) throw new Error('Failed to save transaction');
+      const created = await apiResp.json();
+
+      setTransactions((prev) => [
+        ...prev,
+        {
+          id: created.id || nextId,
+          game: created.game,
+          type: created.action,
+          amount: created.amount,
+          image: created.image,
+          date: created.date || created.created_at || form.date,
+        },
       ]);
-      setNextId(nextId + 1);
-      setForm({ bggId: "", type: "buy", amount: "", date: new Date().toISOString().split('T')[0] });
+      setNextId((n) => n + 1);
+      setForm({ bggId: "", type: "BUY", amount: "", date: new Date().toISOString().split('T')[0] });
       setSearchQuery("");
       setSelectedGame(null);
     } catch (error) {
@@ -178,12 +254,104 @@ const BggDeviation = () => {
     }
   };
 
-  const handleRemove = (id: number) => {
-    setTransactions(transactions.filter((t) => t.id !== id));
+  const handleRemove = async (id: number) => {
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data?.session?.access_token;
+      const headers: Record<string,string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const resp = await fetch(`/api/reconcile?id=${id}`, { method: 'DELETE', headers });
+      if (!resp.ok) throw new Error('Failed to delete transaction');
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      console.error('delete failed', err);
+    }
   };
 
-  const deviationColor =
-    deviation === 0 ? ZERO_COLOR : deviation > 0 ? SELL_COLOR : BUY_COLOR;
+  const handleAuthSuccess = () => {
+    // auth state will be updated via the listener
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0e0b06",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#f0e6d0",
+          fontFamily: "'Crimson Text', Georgia, serif",
+        }}
+      >
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0e0b06",
+          backgroundImage:
+            "radial-gradient(ellipse at 20% 20%, #2a1a08 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, #1a0e0a 0%, transparent 60%)",
+          fontFamily: "'Crimson Text', Georgia, serif",
+          color: "#f0e6d0",
+          padding: "32px 24px",
+        }}
+      >
+        <link
+          href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap"
+          rel="stylesheet"
+        />
+
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.3em",
+              color: "#8b6b3a",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            Board Game Collection
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel', serif",
+              fontSize: "clamp(24px, 4vw, 38px)",
+              fontWeight: 900,
+              margin: 0,
+              color: "#d4a843",
+              letterSpacing: "0.05em",
+              textShadow: "0 2px 20px rgba(212,168,67,0.3)",
+            }}
+          >
+            Trade Ledger
+          </h1>
+          {user && <UserMenu user={user} onLogout={() => setUser(null)} />}
+        </div>
+          <div
+            style={{
+              width: 120,
+              height: 2,
+              background: "linear-gradient(90deg, transparent, #6b4c1e, #d4a843, #6b4c1e, transparent)",
+              margin: "12px auto 0",
+            }}
+          />
+        </div>
+
+        <AuthForm onAuthSuccess={handleAuthSuccess} />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -215,19 +383,22 @@ const BggDeviation = () => {
         >
           Board Game Collection
         </div>
-        <h1
-          style={{
-            fontFamily: "'Cinzel', serif",
-            fontSize: "clamp(24px, 4vw, 38px)",
-            fontWeight: 900,
-            margin: 0,
-            color: "#d4a843",
-            letterSpacing: "0.05em",
-            textShadow: "0 2px 20px rgba(212,168,67,0.3)",
-          }}
-        >
-          Trade Ledger
-        </h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1
+            style={{
+              fontFamily: "'Cinzel', serif",
+              fontSize: "clamp(24px, 4vw, 38px)",
+              fontWeight: 900,
+              margin: 0,
+              color: "#d4a843",
+              letterSpacing: "0.05em",
+              textShadow: "0 2px 20px rgba(212,168,67,0.3)",
+            }}
+          >
+            Trade Ledger
+          </h1>
+          {user && <UserMenu user={user} onLogout={() => setUser(null)} />}
+        </div>
         <div
           style={{
             width: 120,
@@ -237,6 +408,17 @@ const BggDeviation = () => {
           }}
         />
       </div>
+      {/* link to ledger view (placeholder username) */}
+      {user && (
+        <div style={{ textAlign: 'center', marginTop: 8, marginBottom: 32 }}>
+          <a
+            href="/ledger/dboots"
+            style={{ color: '#d4a843', textDecoration: 'underline' }}
+          >
+            View public ledger
+          </a>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div
@@ -376,38 +558,114 @@ const BggDeviation = () => {
       </div>
 
       {/* Add Transaction */}
-      <div
-        style={{
-          maxWidth: 700,
-          margin: "0 auto 28px",
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid #3a2d1a",
-          borderRadius: 10,
-          padding: 20,
-        }}
-      >
+      {user && (
         <div
           style={{
-            fontFamily: "'Cinzel', serif",
-            fontSize: 14,
-            color: "#d4a843",
-            marginBottom: 14,
-            letterSpacing: "0.05em",
+            maxWidth: 700,
+            margin: "0 auto 28px",
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid #3a2d1a",
+            borderRadius: 10,
+            padding: 20,
           }}
         >
-          Add Transaction
-        </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", position: "relative" }}>
-          <div style={{ flex: "2 1 160px", position: "relative" }}>
-            <input
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              onFocus={() => searchResults.length > 0 && setShowResults(true)}
-              onBlur={() => setTimeout(() => setShowResults(false), 200)}
-              placeholder="Search games..."
+          <div
+            style={{
+              fontFamily: "'Cinzel', serif",
+              fontSize: 14,
+              color: "#d4a843",
+              marginBottom: 14,
+              letterSpacing: "0.05em",
+            }}
+          >
+            Add Transaction
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", position: "relative" }}>
+            <div style={{ flex: "2 1 160px", position: "relative" }}>
+              <input
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                onFocus={() => searchResults.length > 0 && setShowResults(true)}
+                onBlur={() => setTimeout(() => setShowResults(false), 200)}
+                placeholder="Search games..."
+                style={{
+                  width: "100%",
+                  background: "#1a1208",
+                  border: "1px solid #4a3820",
+                  borderRadius: 6,
+                  padding: "9px 12px",
+                  color: "#f0e6d0",
+                  fontFamily: "Crimson Text, Georgia, serif",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              {showResults && searchResults.length > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    background: "#1a1208",
+                    border: "1px solid #4a3820",
+                    borderTop: "none",
+                    borderRadius: "0 0 6 6",
+                    zIndex: 10,
+                    maxHeight: "200px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {searchResults.map((game) => (
+                    <div
+                      key={game.id}
+                      onClick={() => handleSelectGame(game)}
+                      style={{
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        borderBottom: "1px solid #2a2010",
+                        color: "#f0e6d0",
+                        fontSize: 13,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#2a2010")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      {game.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
               style={{
-                width: "100%",
+                flex: "0 0 90px",
+                background: "#1a1208",
+                border: "1px solid #4a3820",
+                borderRadius: 6,
+                padding: "9px 10px",
+                color: form.type === "BUY" ? BUY_COLOR : SELL_COLOR,
+                fontFamily: "Crimson Text, Georgia, serif",
+                fontSize: 14,
+                outline: "none",
+              }}
+            >
+              <option value="BUY">Buy</option>
+              <option value="SELL">Sell</option>
+            </select>
+            <input
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              placeholder="$ amount"
+              type="number"
+              min="0"
+              style={{
+                flex: "1 1 90px",
                 background: "#1a1208",
                 border: "1px solid #4a3820",
                 borderRadius: 6,
@@ -416,119 +674,45 @@ const BggDeviation = () => {
                 fontFamily: "Crimson Text, Georgia, serif",
                 fontSize: 14,
                 outline: "none",
-                boxSizing: "border-box",
               }}
             />
-            {showResults && searchResults.length > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "100%",
-                  left: 0,
-                  right: 0,
-                  background: "#1a1208",
-                  border: "1px solid #4a3820",
-                  borderTop: "none",
-                  borderRadius: "0 0 6 6",
-                  zIndex: 10,
-                  maxHeight: "200px",
-                  overflowY: "auto",
-                }}
-              >
-                {searchResults.map((game) => (
-                  <div
-                    key={game.id}
-                    onClick={() => handleSelectGame(game)}
-                    style={{
-                      padding: "8px 12px",
-                      cursor: "pointer",
-                      borderBottom: "1px solid #2a2010",
-                      color: "#f0e6d0",
-                      fontSize: 13,
-                      transition: "background 0.1s",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#2a2010")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    {game.name}
-                  </div>
-                ))}
-              </div>
-            )}
+            <input
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              type="date"
+              style={{
+                flex: "1 1 120px",
+                background: "#1a1208",
+                border: "1px solid #4a3820",
+                borderRadius: 6,
+                padding: "9px 12px",
+                color: "#f0e6d0",
+                fontFamily: "Crimson Text, Georgia, serif",
+                fontSize: 14,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={handleAdd}
+              style={{
+                flex: "0 0 auto",
+                background: "linear-gradient(135deg, #6b4c1e, #4a3210)",
+                border: "1px solid #8b6b3a",
+                borderRadius: 6,
+                padding: "9px 18px",
+                color: "#d4a843",
+                fontFamily: "'Cinzel', serif",
+                fontSize: 13,
+                cursor: "pointer",
+                letterSpacing: "0.05em",
+                transition: "all 0.15s",
+              }}
+            >
+              Add
+            </button>
           </div>
-          <select
-            value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value })}
-            style={{
-              flex: "0 0 90px",
-              background: "#1a1208",
-              border: "1px solid #4a3820",
-              borderRadius: 6,
-              padding: "9px 10px",
-              color: form.type === "buy" ? BUY_COLOR : SELL_COLOR,
-              fontFamily: "Crimson Text, Georgia, serif",
-              fontSize: 14,
-              outline: "none",
-            }}
-          >
-            <option value="buy">Buy</option>
-            <option value="sell">Sell</option>
-          </select>
-          <input
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="$ amount"
-            type="number"
-            min="0"
-            style={{
-              flex: "1 1 90px",
-              background: "#1a1208",
-              border: "1px solid #4a3820",
-              borderRadius: 6,
-              padding: "9px 12px",
-              color: "#f0e6d0",
-              fontFamily: "Crimson Text, Georgia, serif",
-              fontSize: 14,
-              outline: "none",
-            }}
-          />
-          <input
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-            type="date"
-            style={{
-              flex: "1 1 120px",
-              background: "#1a1208",
-              border: "1px solid #4a3820",
-              borderRadius: 6,
-              padding: "9px 12px",
-              color: "#f0e6d0",
-              fontFamily: "Crimson Text, Georgia, serif",
-              fontSize: 14,
-              outline: "none",
-            }}
-          />
-          <button
-            onClick={handleAdd}
-            style={{
-              flex: "0 0 auto",
-              background: "linear-gradient(135deg, #6b4c1e, #4a3210)",
-              border: "1px solid #8b6b3a",
-              borderRadius: 6,
-              padding: "9px 18px",
-              color: "#d4a843",
-              fontFamily: "'Cinzel', serif",
-              fontSize: 13,
-              cursor: "pointer",
-              letterSpacing: "0.05em",
-              transition: "all 0.15s",
-            }}
-          >
-            Add
-          </button>
         </div>
-      </div>
+      )}
 
       {/* Transaction List */}
       <div
@@ -590,7 +774,7 @@ const BggDeviation = () => {
                       width: 6,
                       height: 6,
                       borderRadius: "50%",
-                      background: t.type === "buy" ? BUY_COLOR : SELL_COLOR,
+                      background: t.type === "BUY" ? BUY_COLOR : SELL_COLOR,
                       flexShrink: 0,
                     }}
                   />
@@ -601,13 +785,13 @@ const BggDeviation = () => {
                   <div
                     style={{
                       fontSize: 12,
-                      color: t.type === "buy" ? BUY_COLOR : SELL_COLOR,
+                      color: t.type === "BUY" ? BUY_COLOR : SELL_COLOR,
                       fontWeight: 600,
                       width: 80,
                       textAlign: "right",
                     }}
                   >
-                    {t.type === "buy" ? "−" : "+"}${t.amount}
+                    {t.type === "BUY" ? "−" : "+"}${t.amount}
                   </div>
                   <div
                     style={{
