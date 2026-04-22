@@ -609,7 +609,12 @@ const BggDeviation = () => {
             </div>
           ) : (
             transactions.map((t, i) => {
-              const running = chartData[i]?.running ?? 0;
+              const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              let running = 0;
+              for (let j = 0; j <= sortedTransactions.findIndex(tx => tx.id === t.id); j++) {
+                const tx = sortedTransactions[j];
+                running += tx.type === "SELL" ? tx.amount : -tx.amount;
+              }
               return (
                 <div
                   key={t.id}
