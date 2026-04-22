@@ -1,6 +1,5 @@
 'use client';
-import React, { useMemo, useState, useRef, useEffect } from "react";
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import React, { useState, useRef, useEffect } from "react";
 import AuthForm from '../components/AuthForm';
 import { supabase } from '../utils/supabaseClient';
 import UserMenu from '@/components/UserMenu';
@@ -18,74 +17,7 @@ const INITIAL_TRANSACTIONS = [
 
 const BUY_COLOR = "#c0392b";
 const SELL_COLOR = "#27ae60";
-const LINE_COLOR = "#e67e22";
 const ZERO_COLOR = "#3d9970";
-
-const CustomTooltip: React.FC<any> = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
-  const bar = (payload as any[]).find((p: any) => p.dataKey === "value");
-  const line = (payload as any[]).find((p: any) => p.dataKey === "running");
-  const img = payload[0]?.payload?.image;
-  const game = payload[0]?.payload?.game;
-  return (
-    <div
-      style={{
-        background: "#1a1208",
-        border: "1px solid #6b4c1e",
-        borderRadius: 6,
-        padding: "10px 14px",
-        fontFamily: "'Crimson Text', Georgia, serif",
-        color: "#f0e6d0",
-        minWidth: 160,
-      }}
-    >
-      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6, color: "#d4a843" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {img && (
-            <img src={img} alt={game} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} />
-          )}
-          <div>{game}</div>
-        </div>
-        <div style={{ fontSize: 12, color: "#8b6b3a", marginTop: 4 }}>
-          {new Date(label).toLocaleDateString()}
-        </div>
-      </div>
-      {bar && (
-        <div style={{ fontSize: 13, color: bar.value >= 0 ? SELL_COLOR : BUY_COLOR }}>
-          {bar.value >= 0 ? "▲ Sale" : "▼ Purchase"}: ${Math.abs(bar.value)}
-        </div>
-      )}
-      {line && (
-        <div
-          style={{
-            fontSize: 13,
-            color: line.value === 0 ? ZERO_COLOR : line.value > 0 ? SELL_COLOR : BUY_COLOR,
-            marginTop: 4,
-          }}
-        >
-          Running: {line.value >= 0 ? "+" : ""}${line.value}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const ImageDot: React.FC<any> = (props: any) => {
-  const { cx, cy, payload } = props as any;
-  if (cx == null || cy == null || !payload?.image) return null;
-  // render small image centered at the data point
-  const size = 36;
-  return (
-    <image
-      href={payload.image}
-      x={cx - size / 2}
-      y={cy - size / 2}
-      width={size}
-      height={size}
-      preserveAspectRatio="xMidYMid slice"
-    />
-  );
-};
 
 const BggDeviation = () => {
   const [transactions, setTransactions] = useState<any[]>(INITIAL_TRANSACTIONS);
@@ -140,17 +72,15 @@ const BggDeviation = () => {
     })();
   }, [user]); // reload when user changes
 
-  const chartData = useMemo(() => {
+  const deviation = (() => {
     const sortedTransactions = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     let running = 0;
-    return sortedTransactions.map((t) => {
+    for (const t of sortedTransactions) {
       const value = t.type === "SELL" ? t.amount : -t.amount;
       running += value;
-      return { date: t.date, game: t.game, value, running, type: t.type, image: t.image };
-    });
-  }, [transactions]);
-
-  const deviation = chartData.length ? chartData[chartData.length - 1].running : 0;
+    }
+    return running;
+  })();
   const deviationColor = deviation === 0 ? ZERO_COLOR : deviation > 0 ? SELL_COLOR : BUY_COLOR;
   const totalBought = transactions.filter((t) => t.type === "BUY").reduce((s, t) => s + t.amount, 0);
   const totalSold = transactions.filter((t) => t.type === "SELL").reduce((s, t) => s + t.amount, 0);
@@ -485,76 +415,6 @@ const BggDeviation = () => {
             )}
           </div>
         ))}
-      </div>
-
-      {/* Chart */}
-      <div
-        style={{
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid #3a2d1a",
-          borderRadius: 12,
-          padding: "24px 8px 16px",
-          maxWidth: 900,
-          margin: "0 auto 32px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            gap: 20,
-            justifyContent: "center",
-            marginBottom: 16,
-            fontSize: 12,
-            color: "#8b6b3a",
-            flexWrap: "wrap",
-          }}
-        >
-          <span>
-            <span style={{ color: BUY_COLOR, fontWeight: 700 }}>■</span> Purchase
-          </span>
-          <span>
-            <span style={{ color: SELL_COLOR, fontWeight: 700 }}>■</span> Sale
-          </span>
-          <span>
-            <span style={{ color: LINE_COLOR, fontWeight: 700 }}>—</span> Running Deviation
-          </span>
-          <span>
-            <span style={{ color: ZERO_COLOR, fontWeight: 700 }}>- -</span> Zero Target
-          </span>
-        </div>
-        <ResponsiveContainer width="100%" height={320}>
-          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2010" />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: "#8b6b3a", fontSize: 11, fontFamily: "Crimson Text, Georgia, serif" }}
-              angle={-35}
-              textAnchor="end"
-              interval={0}
-              height={70}
-              tickFormatter={(value) => new Date(value).toLocaleDateString()}
-            />
-            <YAxis
-              tick={{ fill: "#8b6b3a", fontSize: 11 }}
-              tickFormatter={(v) => `$${Math.abs(v)}`}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={0} stroke={ZERO_COLOR} strokeDasharray="6 3" strokeWidth={2} />
-            <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={48}>
-              {chartData.map((entry, i) => (
-                <Cell key={i} fill={entry.value >= 0 ? SELL_COLOR : BUY_COLOR} fillOpacity={0.85} />
-              ))}
-            </Bar>
-            <Line
-              type="monotone"
-              dataKey="running"
-              stroke={LINE_COLOR}
-              strokeWidth={2.5}
-              dot={<ImageDot />}
-              activeDot={<ImageDot />}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
       </div>
 
       {/* Add Transaction */}
